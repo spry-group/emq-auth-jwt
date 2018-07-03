@@ -57,6 +57,7 @@ verify_token(Header, _Token, _Env) ->
 verify_token2(Alg, Token, SecretOrKey) ->
     case catch jwerl:verify(Token, decode_algo(Alg), SecretOrKey) of
         {ok, _Claims}  ->
+            lager:info("JWT claims: ~p", [_Claims]),
             ok;
         {error, Reason} ->
             lager:error("JWT decode error:~p", [Reason]),
