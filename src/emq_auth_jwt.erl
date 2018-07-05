@@ -28,11 +28,13 @@
 %%--------------------------------------------------------------------
 
 init(Env) ->
+    lager:error("init EMQ Authentication JWT"),
     {ok, Env}.
 
 check(_Client, undefined, _Env) ->
     {error, token_undefined};
 check(_Client, Token, Env) ->
+    lager:error("check: ~p, ~p, ~p", [_Client, Token, Env]),
     case catch jwerl:header(Token) of
         {'EXIT', _} -> ignore; % Not a JWT Token
         Headers -> verify_token(Headers, Token, Env)
