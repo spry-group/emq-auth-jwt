@@ -29,13 +29,23 @@
 -define(APP, emq_auth_jwt).
 
 start(_Type, _Args) ->
-    emqttd_access_control:register_mod(auth, ?APP, auth_env()),
+    {ok, Pid} = supervisor:start_link({local, ?MODULE}, ?MODULE, []),
+    Auth_Env = auth_env(),
+    ACL_Env = acl_env(),
+    emqttd_access_control:register_mod(auth, emq_auth_jwt, Auth_Env),
+    emqttd_access_control:register_mod(acl, emq_acl_jwt, ACL_Env),
     emq_auth_jwt_config:register(),
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+    emqttd:hook('client.disconnected',
+                fun emq_acl_jwt:on_client_disconnected/3,
+                [ACL_Env]),
+    {ok, Pid}.
 
 stop(_State) ->
-    emqttd_access_control:unregister_mod(auth, ?APP),
-    emq_auth_jwt_config:unregister().
+    emqttd_access_control:unregister_mod(auth, emq_auth_jwt),
+    emqttd_access_control:unregister_mod(auth, emq_acl_jwt),
+    emq_auth_jwt_config:unregister(),
+    emqttd:unhook('client.disconnected',
+                  fun emq_acl_jwt:on_client_disconnected/3).
 
 %%--------------------------------------------------------------------
 %% Dummy Supervisor
@@ -52,6 +62,9 @@ auth_env() ->
     #{secret => get_env(?APP, secret, undefined),
       pubkey => read_pubkey(),
       scopes => get_env(?APP, scopes, false)}.
+
+acl_env() ->
+    #{scopes => get_env(?APP, scopes, false)}.
 
 read_pubkey() ->
     case get_env(?APP, pubkey) of
