@@ -32,7 +32,10 @@ all() ->
 groups() ->
     [
     {emq_auth_jwt, [sequence],
-     [check_auth]}
+     [check_auth,
+      {check_scopes, [sequence], [test_publish_deny_simple,
+                                  test_publish_allow_simple,
+                                  test_publish_deny]}]}
     ].
 
 init_per_suite(Config) ->
@@ -54,6 +57,10 @@ check_auth(_) ->
         false -> {error, "No auth module to check!"}
     end,
     Result = emqttd_access_control:auth(Plain, <<"asd">>).
+
+check_scopes(_) ->
+    lager:info("check scopes"),
+    ok.
 
 start_apps(App) ->
     NewConfig = generate_config(App),
@@ -90,3 +97,103 @@ set_app_env({App, Lists}) ->
         end,
     lists:foreach(F, Lists),
     application:ensure_all_started(App).
+
+test_publish_deny_simple (_) ->
+    User = <<"user">>,
+    Data = [{<<"scopes">>, []}],
+    Topic = <<"/user/msg">>,
+    Msg = <<"hello">>,
+
+    {ok, AnonC} = start_anonymous(),
+    subscribe(AnonC, <<"/#">>),
+
+    {ok, UserC} = start_client(User, Data),
+    publish(UserC, Topic, Msg),
+
+    {error, timeout} = receive_one(),
+
+    stop_client(UserC),
+    stop_client(AnonC).
+
+test_publish_allow_simple (_) ->
+    User = <<"user">>,
+    Data = [{<<"scopes">>, [<<"emq:publish:/user/msg">>]}],
+    Topic = <<"/user/msg">>,
+    Msg = <<"hello">>,
+
+    {ok, AnonC} = start_anonymous(),
+    subscribe(AnonC, <<"/#">>),
+
+    {ok, UserC} = start_client(User, Data),
+    publish(UserC, Topic, Msg),
+
+    {ok, Topic, Msg} = receive_one(),
+
+    stop_client(UserC),
+    stop_client(AnonC).
+
+test_publish_deny (_) ->
+    User1 = <<"user1">>,
+    Data1 = [{<<"scopes">>, [<<"emq:publish:/user/msg">>]}],
+    User2 = <<"user2">>,
+    Data2 = [{<<"scopes">>, []}],
+    Topic = <<"/user/msg">>,
+    Msg = <<"hello">>,
+
+    {ok, AnonC} = start_anonymous(),
+
+    subscribe(AnonC, <<"/#">>),
+
+    {ok, User1_C} = start_client(User1, Data1),
+    {ok, User2_C} = start_client(User2, Data2),
+
+    publish(User1_C, Topic, Msg),
+    {ok, Topic, Msg} = receive_one(),
+
+    publish(User2_C, Topic, Msg),
+    {error, timeout} = receive_one(),
+
+    publish(User1_C, Topic, Msg),
+    {ok, Topic, Msg} = receive_one(),
+
+    stop_client(User1_C),
+    stop_client(User2_C).
+
+start_anonymous() ->
+    {ok, C} = emqttc:start_link([{username, <<"anonymous">>},
+                                 {password, <<"">>}]),
+    receive
+        {mqttc, C, connected} ->
+            {ok, C}
+    after
+        5000 -> {error, timeout}
+    end.
+
+start_client (User, Data) ->
+    JWT = jwerl:sign(Data, hs256, <<"emqsecret">>),
+    {ok, C} = emqttc:start_link([{username, User}, {password, JWT}]),
+    receive
+        {mqttc, C, connected} -> {ok, C}
+    after
+        5000 -> {error, timeout}
+    end.
+
+stop_client (C) ->
+    emqttc:disconnect(C).
+
+publish (C, Topic, Msg) ->
+    ok = emqttc:sync_publish(C, Topic, Msg, []).
+
+subscribe (C, Topic) ->
+    {ok, _Qos} = emqttc:sync_subscribe(C, Topic).
+
+receive_one () ->
+    receive_one(5000).
+
+receive_one (Timeout) ->
+    receive
+        {publish, Topic, Payload} ->
+            {ok, Topic, Payload}
+    after
+        Timeout -> {error, timeout}
+    end.
