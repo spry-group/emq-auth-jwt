@@ -52,5 +52,5 @@ unregister_config() ->
     clique:unregister_config_whitelist(Keys, ?APP).
 
 keys() ->
-    ["auth.jwt.secret"].
+    ["auth.jwt.secret", "auth.jwt.scopes"].
 

@@ -32,31 +32,32 @@ init(Env) ->
 
 check(_Client, undefined, _Env) ->
     {error, token_undefined};
-check(_Client, Token, Env) ->
+check(Client, Token, Env) ->
     case catch jwerl:header(Token) of
         {'EXIT', _} -> ignore; % Not a JWT Token
-        Headers -> verify_token(Headers, Token, Env)
+        Headers -> verify_token(Client, Headers, Token, Env)
     end.
 
-verify_token(#{alg := <<"HS", _/binary>>}, _Token, #{secret := undefined}) ->
+verify_token(_Client, #{alg := <<"HS", _/binary>>}, _Token, #{secret := undefined}) ->
     {error, hmac_secret_undefined};
-verify_token(#{alg := Alg = <<"HS", _/binary>>}, Token, #{secret := Secret}) ->
-    verify_token2(Alg, Token, Secret);
-verify_token(#{alg := <<"RS", _/binary>>}, _Token, #{pubkey := undefined}) ->
+verify_token(Client, #{alg := Alg = <<"HS", _/binary>>}, Token, Env = #{secret := Secret}) ->
+    verify_token(Client, Alg, Token, Secret, Env);
+verify_token(_Client, #{alg := <<"RS", _/binary>>}, _Token, #{pubkey := undefined}) ->
     {error, rsa_pubkey_undefined};
-verify_token(#{alg := Alg = <<"RS", _/binary>>}, Token, #{pubkey := PubKey}) ->
-    verify_token2(Alg, Token, PubKey);
-verify_token(#{alg := <<"ES", _/binary>>}, _Token, #{pubkey := undefined}) ->
+verify_token(Client, #{alg := Alg = <<"RS", _/binary>>}, Token, Env = #{pubkey := PubKey}) ->
+    verify_token(Client, Alg, Token, PubKey, Env);
+verify_token(_Client, #{alg := <<"ES", _/binary>>}, _Token, #{pubkey := undefined}) ->
     {error, ecdsa_pubkey_undefined};
-verify_token(#{alg := Alg = <<"ES", _/binary>>}, Token, #{pubkey := PubKey}) ->
-    verify_token2(Alg, Token, PubKey);
-verify_token(Header, _Token, _Env) ->
+verify_token(Client, #{alg := Alg = <<"ES", _/binary>>}, Token, Env = #{pubkey := PubKey}) ->
+    verify_token(Client, Alg, Token, PubKey, Env);
+verify_token(_Client, Header, _Token, _Env) ->
     lager:error("Unsupported token: ~p", [Header]),
     {error, token_unsupported}.
 
-verify_token2(Alg, Token, SecretOrKey) ->
+verify_token(Client, Alg, Token, SecretOrKey, Env) ->
     case catch jwerl:verify(Token, decode_algo(Alg), SecretOrKey) of
-        {ok, _Claims}  ->
+        {ok, Claims}  ->
+            setup_acl(Client, maps:get(scopes, Claims, []), Env),
             ok;
         {error, Reason} ->
             lager:error("JWT decode error:~p", [Reason]),
@@ -65,6 +66,12 @@ verify_token2(Alg, Token, SecretOrKey) ->
             lager:error("JWT decode error:~p", [Error]),
             {error, token_error}
     end.
+
+setup_acl(_Client, _Scopes, #{scopes := false}) ->
+    ok;
+setup_acl(Client, Scopes, _Env) ->
+    emq_acl_jwt:set_scopes(Client, Scopes),
+    ok.
 
 decode_algo(<<"HS256">>) -> hs256;
 decode_algo(<<"HS384">>) -> hs384;
