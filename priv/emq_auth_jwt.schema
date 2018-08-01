@@ -7,6 +7,11 @@
   {datatype, string}
 ]}.
 
+%% Enable scopes validation
+{mapping, "auth.jwt.scopes", "emq_auth_jwt.scopes", [
+  {datatype, flag}
+]}.
+
 %% RSA or ECDSA public key file
 {mapping, "auth.jwt.pubkey", "emq_auth_jwt.pubkey", [
   {datatype, string}

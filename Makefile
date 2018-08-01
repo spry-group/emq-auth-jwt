@@ -15,6 +15,9 @@ dep_cuttlefish = git https://github.com/emqtt/cuttlefish v2.0.11
 
 NO_AUTOPATCH = cuttlefish jwerl
 
+TEST_DEPS = emqttc
+dep_emqttc = git https://github.com/emqtt/emqttc.git cffa0aa
+
 ERLC_OPTS += +debug_info
 ERLC_OPTS += +'{parse_transform, lager_transform}'
 
